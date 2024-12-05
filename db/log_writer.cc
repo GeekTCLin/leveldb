@@ -31,6 +31,7 @@ Writer::Writer(WritableFile* dest, uint64_t dest_length)
 
 Writer::~Writer() = default;
 
+// 将传入的slice内容进行分block，每个block 包括7字节的头部 + payload 数据
 Status Writer::AddRecord(const Slice& slice) {
   const char* ptr = slice.data();
   size_t left = slice.size();
@@ -44,18 +45,20 @@ Status Writer::AddRecord(const Slice& slice) {
     const int leftover = kBlockSize - block_offset_;
     assert(leftover >= 0);
     if (leftover < kHeaderSize) {
+	  // block剩余容量小于一个head大小，进行填充
       // Switch to a new block
       if (leftover > 0) {
         // Fill the trailer (literal below relies on kHeaderSize being 7)
         static_assert(kHeaderSize == 7, "");
         dest_->Append(Slice("\x00\x00\x00\x00\x00\x00", leftover));
       }
+	  // 重新计算block
       block_offset_ = 0;
     }
 
     // Invariant: we never leave < kHeaderSize bytes in a block.
     assert(kBlockSize - block_offset_ - kHeaderSize >= 0);
-
+	  // 计算允许写入的payload数据长度
     const size_t avail = kBlockSize - block_offset_ - kHeaderSize;
     const size_t fragment_length = (left < avail) ? left : avail;
 
@@ -79,6 +82,13 @@ Status Writer::AddRecord(const Slice& slice) {
   return s;
 }
 
+/**
+ * header	CRC (4bytes) | Length (2bytes) | RecordType (1bytes) | Payload
+ * @param 	t
+ * @param	ptr		Payload 数据
+ * @param	length	Payload 数据长度
+ * 写入一个chunk
+*/
 Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr,
                                   size_t length) {
   assert(length <= 0xffff);  // Must fit in two bytes
@@ -86,13 +96,17 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr,
 
   // Format the header
   char buf[kHeaderSize];
+  // 存储长度低字节
   buf[4] = static_cast<char>(length & 0xff);
+  // 存储长度高字节
   buf[5] = static_cast<char>(length >> 8);
+  // 存储recordType
   buf[6] = static_cast<char>(t);
 
   // Compute the crc of the record type and the payload.
   uint32_t crc = crc32c::Extend(type_crc_[t], ptr, length);
   crc = crc32c::Mask(crc);  // Adjust for storage
+  // 存储crc到 buf的前4个字节
   EncodeFixed32(buf, crc);
 
   // Write the header and the payload
@@ -103,6 +117,7 @@ Status Writer::EmitPhysicalRecord(RecordType t, const char* ptr,
       s = dest_->Flush();
     }
   }
+  // 调整偏移量
   block_offset_ += kHeaderSize + length;
   return s;
 }

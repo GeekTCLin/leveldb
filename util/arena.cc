@@ -17,15 +17,18 @@ Arena::~Arena() {
   }
 }
 
+// 足够大直接分配block
+// 太小又不满足，就申请新的空间
 char* Arena::AllocateFallback(size_t bytes) {
   if (bytes > kBlockSize / 4) {
     // Object is more than a quarter of our block size.  Allocate it separately
     // to avoid wasting too much space in leftover bytes.
+	// 如果需要的字节大于 1024，直接分配一个相等空间的block，注意这里没有修改alloc_ptr
     char* result = AllocateNewBlock(bytes);
     return result;
   }
 
-  // We waste the remaining space in the current block.
+  // We waste the remaining space in the current block. 浪费当前的block，分配一个4096字节的block
   alloc_ptr_ = AllocateNewBlock(kBlockSize);
   alloc_bytes_remaining_ = kBlockSize;
 
@@ -35,6 +38,7 @@ char* Arena::AllocateFallback(size_t bytes) {
   return result;
 }
 
+// 地址对齐方式获取内存，需要补充偏移量
 char* Arena::AllocateAligned(size_t bytes) {
   const int align = (sizeof(void*) > 8) ? sizeof(void*) : 8;
   static_assert((align & (align - 1)) == 0,
@@ -55,6 +59,7 @@ char* Arena::AllocateAligned(size_t bytes) {
   return result;
 }
 
+// 申请一个block，同时挂在vector数组上
 char* Arena::AllocateNewBlock(size_t block_bytes) {
   char* result = new char[block_bytes];
   blocks_.push_back(result);

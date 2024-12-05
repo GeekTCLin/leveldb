@@ -133,6 +133,7 @@ class Limiter {
 //
 // Instances of this class are thread-friendly but not thread-safe, as required
 // by the SequentialFile API.
+// 顺序读
 class PosixSequentialFile final : public SequentialFile {
  public:
   PosixSequentialFile(std::string filename, int fd)
@@ -150,6 +151,7 @@ class PosixSequentialFile final : public SequentialFile {
         status = PosixError(filename_, errno);
         break;
       }
+      // 读取n个字节数据后就返回了，数据写入 scratch，同时划分出一个slice片段
       *result = Slice(scratch, read_size);
       break;
     }
@@ -157,6 +159,7 @@ class PosixSequentialFile final : public SequentialFile {
   }
 
   Status Skip(uint64_t n) override {
+    // 跳过n个字节
     if (::lseek(fd_, n, SEEK_CUR) == static_cast<off_t>(-1)) {
       return PosixError(filename_, errno);
     }
@@ -173,6 +176,7 @@ class PosixSequentialFile final : public SequentialFile {
 // Instances of this class are thread-safe, as required by the RandomAccessFile
 // API. Instances are immutable and Read() only calls thread-safe library
 // functions.
+// 随机读API
 class PosixRandomAccessFile final : public RandomAccessFile {
  public:
   // The new instance takes ownership of |fd|. |fd_limiter| must outlive this
@@ -200,6 +204,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
               char* scratch) const override {
     int fd = fd_;
     if (!has_permanent_fd_) {
+      // 非持续读取，打开文件
       fd = ::open(filename_.c_str(), O_RDONLY | kOpenBaseFlags);
       if (fd < 0) {
         return PosixError(filename_, errno);
@@ -224,7 +229,7 @@ class PosixRandomAccessFile final : public RandomAccessFile {
   }
 
  private:
-  const bool has_permanent_fd_;  // If false, the file is opened on every read.
+  const bool has_permanent_fd_;  // If false, the file is opened on every read. 如果为false，每次读重新打开文件，fd_为-1
   const int fd_;                 // -1 if has_permanent_fd_ is false.
   Limiter* const fd_limiter_;
   const std::string filename_;
@@ -280,7 +285,7 @@ class PosixWritableFile final : public WritableFile {
       : pos_(0),
         fd_(fd),
         is_manifest_(IsManifest(filename)),
-        filename_(std::move(filename)),
+        filename_(std::move(filename)),	//拷贝进入，这里移动
         dirname_(Dirname(filename_)) {}
 
   ~PosixWritableFile() override {
@@ -295,6 +300,7 @@ class PosixWritableFile final : public WritableFile {
     const char* write_data = data.data();
 
     // Fit as much as possible into buffer.
+	// kWritableFileBufferSize - pos_ 可写入buff的容量
     size_t copy_size = std::min(write_size, kWritableFileBufferSize - pos_);
     std::memcpy(buf_ + pos_, write_data, copy_size);
     write_data += copy_size;
@@ -305,6 +311,7 @@ class PosixWritableFile final : public WritableFile {
     }
 
     // Can't fit in buffer, so need to do at least one write.
+	// 需要写入一次磁盘，以此空出buff的空间
     Status status = FlushBuffer();
     if (!status.ok()) {
       return status;
@@ -312,10 +319,12 @@ class PosixWritableFile final : public WritableFile {
 
     // Small writes go to buffer, large writes are written directly.
     if (write_size < kWritableFileBufferSize) {
+	  //需要写入的内容小于 buffer的容量，写入buffer，直接返回
       std::memcpy(buf_, write_data, write_size);
       pos_ = write_size;
       return Status::OK();
     }
+	// 直接调用io函数进行强制写入
     return WriteUnbuffered(write_data, write_size);
   }
 
@@ -464,6 +473,7 @@ class PosixWritableFile final : public WritableFile {
   const std::string dirname_;  // The directory of filename_.
 };
 
+// 使用linux flok 锁上文件
 int LockOrUnlock(int fd, bool lock) {
   errno = 0;
   struct ::flock file_lock_info;
@@ -527,12 +537,13 @@ class PosixEnv : public Env {
 
   Status NewSequentialFile(const std::string& filename,
                            SequentialFile** result) override {
+    // 可读打开文件
     int fd = ::open(filename.c_str(), O_RDONLY | kOpenBaseFlags);
     if (fd < 0) {
       *result = nullptr;
       return PosixError(filename, errno);
     }
-
+    // 创建顺序读文件类
     *result = new PosixSequentialFile(filename, fd);
     return Status::OK();
   }
@@ -572,6 +583,7 @@ class PosixEnv : public Env {
 
   Status NewWritableFile(const std::string& filename,
                          WritableFile** result) override {
+    // 创建一个sstable文件，若文件存在则会覆盖
     int fd = ::open(filename.c_str(),
                     O_TRUNC | O_WRONLY | O_CREAT | kOpenBaseFlags, 0644);
     if (fd < 0) {
@@ -600,6 +612,7 @@ class PosixEnv : public Env {
     return ::access(filename.c_str(), F_OK) == 0;
   }
 
+  // 获取 directory_path 目录下 所有文件名
   Status GetChildren(const std::string& directory_path,
                      std::vector<std::string>* result) override {
     result->clear();
@@ -653,6 +666,7 @@ class PosixEnv : public Env {
     return Status::OK();
   }
 
+  // 上文件锁
   Status LockFile(const std::string& filename, FileLock** lock) override {
     *lock = nullptr;
 
@@ -817,9 +831,11 @@ void PosixEnv::Schedule(
   background_work_mutex_.Lock();
 
   // Start the background thread, if we haven't done so already.
+  // 开启后台合并线程
   if (!started_background_thread_) {
     started_background_thread_ = true;
     std::thread background_thread(PosixEnv::BackgroundThreadEntryPoint, this);
+    // 注意这里的detch分离了，与原 background_thread 成员独立，background_thread 局部变量销毁不影响该线程
     background_thread.detach();
   }
 
@@ -828,10 +844,12 @@ void PosixEnv::Schedule(
     background_work_cv_.Signal();
   }
 
+  // 增加至队列中
   background_work_queue_.emplace(background_work_function, background_work_arg);
   background_work_mutex_.Unlock();
 }
 
+// 后台合并检测主循环
 void PosixEnv::BackgroundThreadMain() {
   while (true) {
     background_work_mutex_.Lock();
@@ -847,7 +865,7 @@ void PosixEnv::BackgroundThreadMain() {
     background_work_queue_.pop();
 
     background_work_mutex_.Unlock();
-    background_work_function(background_work_arg);
+    background_work_function(background_work_arg);  //执行注册的函数
   }
 }
 

@@ -145,21 +145,24 @@ class Version {
   void ForEachOverlapping(Slice user_key, Slice internal_key, void* arg,
                           bool (*func)(void*, int, FileMetaData*));
 
-  VersionSet* vset_;  // VersionSet to which this Version belongs
-  Version* next_;     // Next version in linked list
-  Version* prev_;     // Previous version in linked list
-  int refs_;          // Number of live refs to this version
+  // class version 成员如下：
+  VersionSet* vset_;  // VersionSet to which this Version belongs 指向所属的versionSet
+  Version* next_;     // Next version in linked list              版本链的下一个版本
+  Version* prev_;     // Previous version in linked list          版本链的前一个版本
+  int refs_;          // Number of live refs to this version      版本的引用计数
 
   // List of files per level
-  std::vector<FileMetaData*> files_[config::kNumLevels];
+  std::vector<FileMetaData*> files_[config::kNumLevels];          // 当前版本下SSTable的元信息，包含7层 level从0-6，每层有多个FileMetaData*指针
 
   // Next file to compact based on seek stats.
+  // seek compaction的基本信息
   FileMetaData* file_to_compact_;
   int file_to_compact_level_;
 
   // Level that should be compacted next and its compaction score.
   // Score < 1 means compaction is not strictly needed.  These fields
   // are initialized by Finalize().
+  // size_compaction的基本信息
   double compaction_score_;
   int compaction_level_;
 };
@@ -249,6 +252,7 @@ class VersionSet {
   Iterator* MakeInputIterator(Compaction* c);
 
   // Returns true iff some level needs a compaction.
+  // 若合并指数 compaction_score  大于1 或者待合并文件 file_to_compact_ 不为空
   bool NeedsCompaction() const {
     Version* v = current_;
     return (v->compaction_score_ >= 1) || (v->file_to_compact_ != nullptr);
@@ -296,18 +300,18 @@ class VersionSet {
   Env* const env_;
   const std::string dbname_;
   const Options* const options_;
-  TableCache* const table_cache_;
-  const InternalKeyComparator icmp_;
-  uint64_t next_file_number_;
-  uint64_t manifest_file_number_;
-  uint64_t last_sequence_;
-  uint64_t log_number_;
-  uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted
+  TableCache* const table_cache_;       // 数据缓存
+  const InternalKeyComparator icmp_;    // 
+  uint64_t next_file_number_;           // 下一个文件序号， 文件名都是从next_file_number_得来，1: wal .log 文件，2: sstable .ldb 文件 3: MANIFEST 文件
+  uint64_t manifest_file_number_;       // manifest文件序号，Recover() 时用到
+  uint64_t last_sequence_;              // 最新操作序号，单条write写入递增该编号
+  uint64_t log_number_;                 // 日志文件序号
+  uint64_t prev_log_number_;  // 0 or backing store for memtable being compacted 目前已弃用
 
   // Opened lazily
   WritableFile* descriptor_file_;
   log::Writer* descriptor_log_;
-  Version dummy_versions_;  // Head of circular doubly-linked list of versions.
+  Version dummy_versions_;  // Head of circular doubly-linked list of versions. 链表头节点
   Version* current_;        // == dummy_versions_.prev_
 
   // Per-level key at which the next compaction at that level should start.
@@ -328,7 +332,7 @@ class Compaction {
   // by this compaction.
   VersionEdit* edit() { return &edit_; }
 
-  // "which" must be either 0 or 1
+  // "which" must be either 0 or 1 代表 level[n] 和 level[n+1] 层
   int num_input_files(int which) const { return inputs_[which].size(); }
 
   // Return the ith input file at "level()+which" ("which" must be 0 or 1).

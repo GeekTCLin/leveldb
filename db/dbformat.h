@@ -92,6 +92,7 @@ void AppendInternalKey(std::string* result, const ParsedInternalKey& key);
 bool ParseInternalKey(const Slice& internal_key, ParsedInternalKey* result);
 
 // Returns the user key portion of an internal key.
+// 去掉尾部8字节，返回前面的user_key
 inline Slice ExtractUserKey(const Slice& internal_key) {
   assert(internal_key.size() >= 8);
   return Slice(internal_key.data(), internal_key.size() - 8);
@@ -168,13 +169,20 @@ inline int InternalKeyComparator::Compare(const InternalKey& a,
   return Compare(a.Encode(), b.Encode());
 }
 
+// 解析出ParsedInternal_key
+// @param internal_key
+// @out   result
+// internal_key layout
 inline bool ParseInternalKey(const Slice& internal_key,
                              ParsedInternalKey* result) {
   const size_t n = internal_key.size();
   if (n < 8) return false;
+  // 取出最后8字节
   uint64_t num = DecodeFixed64(internal_key.data() + n - 8);
-  uint8_t c = num & 0xff;
+  // 左移8位，取出高56位的sequence
   result->sequence = num >> 8;
+  uint8_t c = num & 0xff;
+  // 取出type
   result->type = static_cast<ValueType>(c);
   result->user_key = Slice(internal_key.data(), n - 8);
   return (c <= static_cast<uint8_t>(kTypeValue));
@@ -193,6 +201,7 @@ class LookupKey {
   ~LookupKey();
 
   // Return a key suitable for lookup in a MemTable.
+  // 返回memtable查找key，包含internal_key_size 部分
   Slice memtable_key() const { return Slice(start_, end_ - start_); }
 
   // Return an internal key (suitable for passing to an internal iterator)
@@ -209,9 +218,9 @@ class LookupKey {
   //                                    <-- end_
   // The array is a suitable MemTable key.
   // The suffix starting with "userkey" can be used as an InternalKey.
-  const char* start_;
-  const char* kstart_;
-  const char* end_;
+  const char* start_;   // look up key 开始
+  const char* kstart_;  // user key 开始
+  const char* end_;     // look up key 结束
   char space_[200];  // Avoid allocation for short keys
 };
 

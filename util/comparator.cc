@@ -18,6 +18,7 @@ namespace leveldb {
 Comparator::~Comparator() = default;
 
 namespace {
+// BytewiseComparatorImpl 按字典逐字节序比较，即 i > helloWorld，因为先比较i 和 h，i > h 比较结束
 class BytewiseComparatorImpl : public Comparator {
  public:
   BytewiseComparatorImpl() = default;
@@ -28,6 +29,7 @@ class BytewiseComparatorImpl : public Comparator {
     return a.compare(b);
   }
 
+  // FindShortestSeparator 找到start、limit之间最短的字符串，如 "helloworld" 和 "hellozoomer" 之间最短的key 为 "hellox"
   void FindShortestSeparator(std::string* start,
                              const Slice& limit) const override {
     // Find length of common prefix
@@ -42,6 +44,7 @@ class BytewiseComparatorImpl : public Comparator {
       // Do not shorten if one string is a prefix of the other
     } else {
       uint8_t diff_byte = static_cast<uint8_t>((*start)[diff_index]);
+      // < 0xff 防止溢出，diff_type 小于 limit[diff_index] 则 + 1
       if (diff_byte < static_cast<uint8_t>(0xff) &&
           diff_byte + 1 < static_cast<uint8_t>(limit[diff_index])) {
         (*start)[diff_index]++;
@@ -50,7 +53,8 @@ class BytewiseComparatorImpl : public Comparator {
       }
     }
   }
-
+  // FindShortSuccessor 用于找到比key最大的最短字符串，如传入 "helloworld" 返回的key可能是 i
+  // 从首个字符开始，如果能 + 1 不溢出(0xff) 则直接返回
   void FindShortSuccessor(std::string* key) const override {
     // Find first character that can be incremented
     size_t n = key->size();

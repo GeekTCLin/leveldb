@@ -78,10 +78,10 @@ class DBImpl : public DB {
 
   // Information for a manual compaction
   struct ManualCompaction {
-    int level;
+    int level;                // 手动指定需要合并的层级
     bool done;
-    const InternalKey* begin;  // null means beginning of key range
-    const InternalKey* end;    // null means end of key range
+    const InternalKey* begin;  // null means beginning of key range 合并起始位置
+    const InternalKey* end;    // null means end of key range       合并终止位置
     InternalKey tmp_storage;   // Used to keep track of compaction progress
   };
 

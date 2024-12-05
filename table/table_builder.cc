@@ -37,15 +37,15 @@ struct TableBuilder::Rep {
 
   Options options;
   Options index_block_options;
-  WritableFile* file;
-  uint64_t offset;
+  WritableFile* file;         // posix环境下，一个buffer + 文件写入的控制类
+  uint64_t offset;            // 累计每个Data Block的偏移量(包括尾部crc32 + compressType)
   Status status;
-  BlockBuilder data_block;
-  BlockBuilder index_block;
-  std::string last_key;
-  int64_t num_entries;
+  BlockBuilder data_block;    // 存储kv数据，存在多个
+  BlockBuilder index_block;   // 存储每个Data Block在文件中的偏移量、长度以及最短键信息，有多个和data_block数量对应
+  std::string last_key;       // 插入的上一个key
+  int64_t num_entries;        // 存储的kv键值对数量
   bool closed;  // Either Finish() or Abandon() has been called.
-  FilterBlockBuilder* filter_block;
+  FilterBlockBuilder* filter_block;   //布隆过滤器信息
 
   // We do not emit the index entry for a block until we have seen the
   // first key for the next data block.  This allows us to use shorter
@@ -56,6 +56,7 @@ struct TableBuilder::Rep {
   // blocks.
   //
   // Invariant: r->pending_index_entry is true only if data_block is empty.
+  // pending_index_entry 为true 时添加一个 index_block
   bool pending_index_entry;
   BlockHandle pending_handle;  // Handle to add to index block
 
@@ -95,28 +96,39 @@ void TableBuilder::Add(const Slice& key, const Slice& value) {
   Rep* r = rep_;
   assert(!r->closed);
   if (!ok()) return;
+  // 保证有序，插入的key > 最后一次插入的key
   if (r->num_entries > 0) {
     assert(r->options.comparator->Compare(key, Slice(r->last_key)) > 0);
   }
 
+  // 新的block，同时写入一个index block索引
   if (r->pending_index_entry) {
     assert(r->data_block.empty());
+    //找到前一个block和当前key之间的最短的字符串作为block分界Key，作为块索引
+    //这里会写入至last_key中
     r->options.comparator->FindShortestSeparator(&r->last_key, key);
+    // 将上个block的offset 和 字节长度存入 handle_encoding
     std::string handle_encoding;
     r->pending_handle.EncodeTo(&handle_encoding);
+    //index_block 增加索引数据
     r->index_block.Add(r->last_key, Slice(handle_encoding));
     r->pending_index_entry = false;
   }
 
+  // 布隆过滤器保存下key
   if (r->filter_block != nullptr) {
     r->filter_block->AddKey(key);
   }
 
+  // 替换last_key
   r->last_key.assign(key.data(), key.size());
+  // 增加数量
   r->num_entries++;
+  // data_block 保存key 和 value
   r->data_block.Add(key, value);
 
   const size_t estimated_block_size = r->data_block.CurrentSizeEstimate();
+  // block的block_data字段大小超过options中设置的阈值，Flush至磁盘中
   if (estimated_block_size >= r->options.block_size) {
     Flush();
   }
@@ -130,7 +142,9 @@ void TableBuilder::Flush() {
   assert(!r->pending_index_entry);
   WriteBlock(&r->data_block, &r->pending_handle);
   if (ok()) {
+    // 一个block flush至磁盘后，重新开一个新block
     r->pending_index_entry = true;
+    // block写入可能还在buffer中，直接调用flush来保证数据写入磁盘
     r->status = r->file->Flush();
   }
   if (r->filter_block != nullptr) {
@@ -138,6 +152,8 @@ void TableBuilder::Flush() {
   }
 }
 
+// 将block数据写入磁盘
+// handle用于返回该block的字节数 以及 block开始的偏移量
 void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   // File format contains a sequence of blocks where each block has:
   //    block_data: uint8[n]
@@ -147,6 +163,7 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   Rep* r = rep_;
   Slice raw = block->Finish();
 
+  // 按照options配置进行压缩
   Slice block_contents;
   CompressionType type = r->options.compression;
   // TODO(postrelease): Support more compression options: zlib?
@@ -186,23 +203,30 @@ void TableBuilder::WriteBlock(BlockBuilder* block, BlockHandle* handle) {
   }
   WriteRawBlock(block_contents, type, handle);
   r->compressed_output.clear();
+  // block 这里调用reset重置，所以pending_index_entry 为true时，block数据为空
   block->Reset();
 }
 
+// handle用于返回该block的字节数 以及 block开始的偏移量
 void TableBuilder::WriteRawBlock(const Slice& block_contents,
                                  CompressionType type, BlockHandle* handle) {
   Rep* r = rep_;
   handle->set_offset(r->offset);
   handle->set_size(block_contents.size());
+  // 使用writeTableFile保存 block_contents
   r->status = r->file->Append(block_contents);
   if (r->status.ok()) {
     char trailer[kBlockTrailerSize];
+    // trailer 首个字节存储 压缩type
     trailer[0] = type;
     uint32_t crc = crc32c::Value(block_contents.data(), block_contents.size());
     crc = crc32c::Extend(crc, trailer, 1);  // Extend crc to cover block type
+    // trailer [1:4] 存储crc32
     EncodeFixed32(trailer + 1, crc32c::Mask(crc));
+    // 写入datablock尾部
     r->status = r->file->Append(Slice(trailer, kBlockTrailerSize));
     if (r->status.ok()) {
+      // 设置r的偏移量 block_contents 的字节长度 + kBlockTrailerSize 尾部字节数，一个完整datablock占用的字节
       r->offset += block_contents.size() + kBlockTrailerSize;
     }
   }
@@ -210,12 +234,15 @@ void TableBuilder::WriteRawBlock(const Slice& block_contents,
 
 Status TableBuilder::status() const { return rep_->status; }
 
+// 完成filter block、metaindex block、index block、footer的写入
 Status TableBuilder::Finish() {
   Rep* r = rep_;
+  // 先flush data block 所有数据写入磁盘
   Flush();
   assert(!r->closed);
   r->closed = true;
 
+  // BlockHandle 用于记录写入的block 偏移量 + block content 字节长度
   BlockHandle filter_block_handle, metaindex_block_handle, index_block_handle;
 
   // Write filter block
@@ -229,6 +256,11 @@ Status TableBuilder::Finish() {
     BlockBuilder meta_index_block(&r->options);
     if (r->filter_block != nullptr) {
       // Add mapping from "filter.Name" to location of filter data
+      
+      /** metaindex layout 
+      * key : "filter." + filterName, 
+      * value : filter block offset +  filter block size
+      */
       std::string key = "filter.";
       key.append(r->options.filter_policy->Name());
       std::string handle_encoding;
@@ -241,6 +273,7 @@ Status TableBuilder::Finish() {
   }
 
   // Write index block
+  // 存储最后一个index数据
   if (ok()) {
     if (r->pending_index_entry) {
       r->options.comparator->FindShortSuccessor(&r->last_key);

@@ -290,6 +290,7 @@ class LEVELDB_EXPORT WritableFile {
 };
 
 // An interface for writing log messages.
+// 日志类
 class LEVELDB_EXPORT Logger {
  public:
   Logger() = default;

@@ -66,6 +66,7 @@ Status Footer::DecodeFrom(Slice* input) {
   return result;
 }
 
+// 根据handle存储的偏移量读取block，写入result
 Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
                  const BlockHandle& handle, BlockContents* result) {
   result->data = Slice();
@@ -74,8 +75,11 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
 
   // Read the block contents as well as the type/crc footer.
   // See table_builder.cc for the code that built this structure.
+  // n 为 block的字节长度
   size_t n = static_cast<size_t>(handle.size());
+  // block 实际占用长度 n +  1-byte type + 32-bit crc
   char* buf = new char[n + kBlockTrailerSize];
+  // io 读取block 至内存 buf, 但使用为 contents
   Slice contents;
   Status s = file->Read(handle.offset(), n + kBlockTrailerSize, &contents, buf);
   if (!s.ok()) {
@@ -99,6 +103,7 @@ Status ReadBlock(RandomAccessFile* file, const ReadOptions& options,
     }
   }
 
+  // 检测压缩字节
   switch (data[n]) {
     case kNoCompression:
       if (data != buf) {

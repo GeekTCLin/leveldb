@@ -35,6 +35,11 @@ struct Table::Rep {
   Block* index_block;
 };
 
+/**
+ * 通过io读取一个sstable文件
+ * @size  文件大小
+ * @
+ */
 Status Table::Open(const Options& options, RandomAccessFile* file,
                    uint64_t size, Table** table) {
   *table = nullptr;
@@ -44,6 +49,7 @@ Status Table::Open(const Options& options, RandomAccessFile* file,
 
   char footer_space[Footer::kEncodedLength];
   Slice footer_input;
+  // 读取 footer 部分写入 footer_space, 使用是footer_input
   Status s = file->Read(size - Footer::kEncodedLength, Footer::kEncodedLength,
                         &footer_input, footer_space);
   if (!s.ok()) return s;
@@ -98,8 +104,10 @@ void Table::ReadMeta(const Footer& footer) {
   Block* meta = new Block(contents);
 
   Iterator* iter = meta->NewIterator(BytewiseComparator());
+  // 拼接filter key的名字
   std::string key = "filter.";
   key.append(rep_->options.filter_policy->Name());
+  // 查询
   iter->Seek(key);
   if (iter->Valid() && iter->key() == Slice(key)) {
     ReadFilter(iter->value());
@@ -174,6 +182,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
       if (cache_handle != nullptr) {
         block = reinterpret_cast<Block*>(block_cache->Value(cache_handle));
       } else {
+        // cache 未命中，IO 读取 data_block 并保存至 cache中
         s = ReadBlock(table->rep_->file, options, handle, &contents);
         if (s.ok()) {
           block = new Block(contents);
@@ -184,6 +193,7 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
         }
       }
     } else {
+      // IO 读取 block
       s = ReadBlock(table->rep_->file, options, handle, &contents);
       if (s.ok()) {
         block = new Block(contents);
@@ -206,15 +216,20 @@ Iterator* Table::BlockReader(void* arg, const ReadOptions& options,
 }
 
 Iterator* Table::NewIterator(const ReadOptions& options) const {
+  // 这里竟然还返回一个 2级迭代器
+  // 第一层 定位 block，使用index block 来定位 data block
+  // 第二层 BlockReader 获取 data block 的迭代器
   return NewTwoLevelIterator(
       rep_->index_block->NewIterator(rep_->options.comparator),
       &Table::BlockReader, const_cast<Table*>(this), options);
 }
 
+// k internal key
 Status Table::InternalGet(const ReadOptions& options, const Slice& k, void* arg,
                           void (*handle_result)(void*, const Slice&,
                                                 const Slice&)) {
   Status s;
+  // index block 查找 k，定位datablock
   Iterator* iiter = rep_->index_block->NewIterator(rep_->options.comparator);
   iiter->Seek(k);
   if (iiter->Valid()) {
@@ -225,6 +240,7 @@ Status Table::InternalGet(const ReadOptions& options, const Slice& k, void* arg,
         !filter->KeyMayMatch(handle.offset(), k)) {
       // Not found
     } else {
+      // data block 查找
       Iterator* block_iter = BlockReader(this, options, iiter->value());
       block_iter->Seek(k);
       if (block_iter->Valid()) {

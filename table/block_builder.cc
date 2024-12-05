@@ -83,12 +83,15 @@ void BlockBuilder::Add(const Slice& key, const Slice& value) {
     }
   } else {
     // Restart compression
+	  // 这里相当于存储偏移量
+    // 每16个KV设置一个restart point，重新计算前缀压缩，restart_主要用于二分查找
     restarts_.push_back(buffer_.size());
     counter_ = 0;
   }
   const size_t non_shared = key.size() - shared;
 
   // Add "<shared><non_shared><value_size>" to buffer_
+  // 压缩前缀
   PutVarint32(&buffer_, shared);
   PutVarint32(&buffer_, non_shared);
   PutVarint32(&buffer_, value.size());

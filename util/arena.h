@@ -13,6 +13,7 @@
 
 namespace leveldb {
 
+// arna 用于给 skiplist 中的 节点分配空间，memtable 转换为 sstable后 arna析构释放内存
 class Arena {
  public:
   Arena();
@@ -57,6 +58,7 @@ inline char* Arena::Allocate(size_t bytes) {
   // 0-byte allocations, so we disallow them here (we don't need
   // them for our internal use).
   assert(bytes > 0);
+  // 如果申请的空间小于 剩余空间
   if (bytes <= alloc_bytes_remaining_) {
     char* result = alloc_ptr_;
     alloc_ptr_ += bytes;

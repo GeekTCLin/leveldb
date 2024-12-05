@@ -7,6 +7,7 @@
 #include "leveldb/slice.h"
 #include "util/hash.h"
 
+// 布隆过滤器
 namespace leveldb {
 
 namespace {
@@ -24,27 +25,36 @@ class BloomFilterPolicy : public FilterPolicy {
   }
 
   const char* Name() const override { return "leveldb.BuiltinBloomFilter2"; }
-
+  
+  /**
+   * n key的个数
+   */ 
   void CreateFilter(const Slice* keys, int n, std::string* dst) const override {
     // Compute bloom filter size (in both bits and bytes)
+    // bits 计算需要多少各bit位
     size_t bits = n * bits_per_key_;
 
     // For small n, we can see a very high false positive rate.  Fix it
     // by enforcing a minimum bloom filter length.
     if (bits < 64) bits = 64;
 
+    // 计算字节数 +7 保证足够空间
     size_t bytes = (bits + 7) / 8;
     bits = bytes * 8;
 
     const size_t init_size = dst->size();
+    // 扩容足够空间
     dst->resize(init_size + bytes, 0);
+    // 末尾记录 每个key记录多少个bit位置
     dst->push_back(static_cast<char>(k_));  // Remember # of probes in filter
+
     char* array = &(*dst)[init_size];
+    // 对key进行逐一计算bloom bit位
     for (int i = 0; i < n; i++) {
       // Use double-hashing to generate a sequence of hash values.
       // See analysis in [Kirsch,Mitzenmacher 2006].
-      uint32_t h = BloomHash(keys[i]);
-      const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits
+      uint32_t h = BloomHash(keys[i]);	//计算hash值
+      const uint32_t delta = (h >> 17) | (h << 15);  // Rotate right 17 bits 计算增量
       for (size_t j = 0; j < k_; j++) {
         const uint32_t bitpos = h % bits;
         array[bitpos / 8] |= (1 << (bitpos % 8));
@@ -80,8 +90,8 @@ class BloomFilterPolicy : public FilterPolicy {
   }
 
  private:
-  size_t bits_per_key_;
-  size_t k_;
+  size_t bits_per_key_;		//每一个key使用多少个bit
+  size_t k_;              //每一个key计算多少次布隆位
 };
 }  // namespace
 

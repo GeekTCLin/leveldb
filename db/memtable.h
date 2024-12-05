@@ -38,11 +38,11 @@ class MemTable {
     }
   }
 
-  // Returns an estimate of the number of bytes of data in use by this
+  // Returns an estimate(估计) of the number of bytes of data in use by this
   // data structure. It is safe to call when MemTable is being modified.
   size_t ApproximateMemoryUsage();
 
-  // Return an iterator that yields the contents of the memtable.
+  // Return an iterator that yields(产生) the contents of the memtable.
   //
   // The caller must ensure that the underlying MemTable remains live
   // while the returned iterator is live.  The keys returned by this
@@ -57,8 +57,7 @@ class MemTable {
            const Slice& value);
 
   // If memtable contains a value for key, store it in *value and return true.
-  // If memtable contains a deletion for key, store a NotFound() error
-  // in *status and return true.
+  // If memtable contains a deletion for key, store a NotFound() error in *status and return true.
   // Else, return false.
   bool Get(const LookupKey& key, std::string* value, Status* s);
 

@@ -42,11 +42,11 @@ class FilterBlockBuilder {
   void GenerateFilter();
 
   const FilterPolicy* policy_;
-  std::string keys_;             // Flattened key contents
-  std::vector<size_t> start_;    // Starting index in keys_ of each key
+  std::string keys_;             // Flattened key contents	存储每个key，key之间直接首尾相连
+  std::vector<size_t> start_;    // Starting index in keys_ of each key	每个元素存储key在keys_的偏移量
   std::string result_;           // Filter data computed so far
   std::vector<Slice> tmp_keys_;  // policy_->CreateFilter() argument
-  std::vector<uint32_t> filter_offsets_;
+  std::vector<uint32_t> filter_offsets_;    // 计算每次GenerateFilter后result_的字节偏移量
 };
 
 class FilterBlockReader {

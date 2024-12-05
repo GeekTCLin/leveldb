@@ -173,9 +173,10 @@ struct SkipList<Key, Comparator>::Node {
 
  private:
   // Array of length equal to the node height.  next_[0] is lowest level link.
+  // 多线程读操作是原子的，多线程写需要外部加锁，因此最多只有一个线程写skiplist
   std::atomic<Node*> next_[1];
 };
-
+// Node的构造在这里，根据height决定next_分配的空间，已经分配了next_[0]，后续需要 height - 1个
 template <typename Key, class Comparator>
 typename SkipList<Key, Comparator>::Node* SkipList<Key, Comparator>::NewNode(
     const Key& key, int height) {
@@ -239,6 +240,7 @@ inline void SkipList<Key, Comparator>::Iterator::SeekToLast() {
 template <typename Key, class Comparator>
 int SkipList<Key, Comparator>::RandomHeight() {
   // Increase height with probability 1 in kBranching
+  // 随机高度
   static const unsigned int kBranching = 4;
   int height = 1;
   while (height < kMaxHeight && rnd_.OneIn(kBranching)) {
@@ -249,6 +251,14 @@ int SkipList<Key, Comparator>::RandomHeight() {
   return height;
 }
 
+// node节点的key 小于 传入进来的key
+// 小于存在两种情况 n->key < key
+// 1. node 节点key的字节序 小于 key的字节序
+// 2. node 节点key的sequence number 大于 key的 sequence number
+// 反之大于则是
+// 1. node 节点userKey字典序 大于 key 的字典序
+// 2. node 节点sequenceNumber 小于 key 的 sequence number
+// 所以 相同key下，skiplist 存储 sequence number 更大的节点在前面
 template <typename Key, class Comparator>
 bool SkipList<Key, Comparator>::KeyIsAfterNode(const Key& key, Node* n) const {
   // null n is considered infinite
@@ -263,10 +273,12 @@ SkipList<Key, Comparator>::FindGreaterOrEqual(const Key& key,
   int level = GetMaxHeight() - 1;
   while (true) {
     Node* next = x->Next(level);
+	// KeyIsAfterNode 中有对next为空的判断
     if (KeyIsAfterNode(key, next)) {
       // Keep searching in this list
       x = next;
     } else {
+	  //存储前置节点
       if (prev != nullptr) prev[level] = x;
       if (level == 0) {
         return next;
@@ -323,7 +335,7 @@ template <typename Key, class Comparator>
 SkipList<Key, Comparator>::SkipList(Comparator cmp, Arena* arena)
     : compare_(cmp),
       arena_(arena),
-      head_(NewNode(0 /* any key will do */, kMaxHeight)),
+      head_(NewNode(0 /* any key will do */, kMaxHeight)),	//head节点 12层
       max_height_(1),
       rnd_(0xdeadbeef) {
   for (int i = 0; i < kMaxHeight; i++) {
@@ -342,6 +354,7 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
   assert(x == nullptr || !Equal(key, x->key));
 
   int height = RandomHeight();
+  // 随机的高度 大于 当前维护的高度，所以从当前维护高度开始 到 最大高度，前置节点为 head_
   if (height > GetMaxHeight()) {
     for (int i = GetMaxHeight(); i < height; i++) {
       prev[i] = head_;
@@ -357,9 +370,12 @@ void SkipList<Key, Comparator>::Insert(const Key& key) {
   }
 
   x = NewNode(key, height);
+  // 插入x节点
   for (int i = 0; i < height; i++) {
     // NoBarrier_SetNext() suffices since we will add a barrier when
     // we publish a pointer to "x" in prev[i].
+	// 如果是head_ x->NoBarrier_SetNext(i, head_->NoBarrier_SetNext(i))
+  // 设置x 的后继节点
     x->NoBarrier_SetNext(i, prev[i]->NoBarrier_Next(i));
     prev[i]->SetNext(i, x);
   }

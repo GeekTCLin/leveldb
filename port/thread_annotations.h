@@ -23,7 +23,7 @@
 #ifndef GUARDED_BY
 #define GUARDED_BY(x) THREAD_ANNOTATION_ATTRIBUTE__(guarded_by(x))
 #endif
-
+// 静态检测该变量访问时是否被mutex保护
 #ifndef PT_GUARDED_BY
 #define PT_GUARDED_BY(x) THREAD_ANNOTATION_ATTRIBUTE__(pt_guarded_by(x))
 #endif

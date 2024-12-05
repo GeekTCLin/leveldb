@@ -28,6 +28,7 @@ class MergingIterator : public Iterator {
 
   bool Valid() const override { return (current_ != nullptr); }
 
+   // 每个迭代器 调整到首个元素，查找最小元素
   void SeekToFirst() override {
     for (int i = 0; i < n_; i++) {
       children_[i].SeekToFirst();
@@ -73,8 +74,9 @@ class MergingIterator : public Iterator {
       }
       direction_ = kForward;
     }
-
+    // 当前选中的节点指向下一个，改变了这个迭代器的最小值
     current_->Next();
+    // 查找下一个最小节点
     FindSmallest();
   }
 

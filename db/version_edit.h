@@ -20,7 +20,7 @@ struct FileMetaData {
 
   int refs;
   int allowed_seeks;  // Seeks allowed until compaction
-  uint64_t number;
+  uint64_t number;    // 由 versionSet 中的 next_file_number_ 提供
   uint64_t file_size;    // File size in bytes
   InternalKey smallest;  // Smallest internal key served by table
   InternalKey largest;   // Largest internal key served by table
@@ -67,6 +67,7 @@ class VersionEdit {
     f.file_size = file_size;
     f.smallest = smallest;
     f.largest = largest;
+    // 向new_files_ 添加一个SSTable元信息
     new_files_.push_back(std::make_pair(level, f));
   }
 
@@ -83,22 +84,22 @@ class VersionEdit {
  private:
   friend class VersionSet;
 
-  typedef std::set<std::pair<int, uint64_t>> DeletedFileSet;
+  typedef std::set<std::pair<int, uint64_t>> DeletedFileSet;    // int 存储着level
 
   std::string comparator_;
-  uint64_t log_number_;
+  uint64_t log_number_;       // wal日志 id
   uint64_t prev_log_number_;
-  uint64_t next_file_number_;
-  SequenceNumber last_sequence_;
+  uint64_t next_file_number_; // 下一个文件编号
+  SequenceNumber last_sequence_;  // 最新的操作序号
   bool has_comparator_;
-  bool has_log_number_;
+  bool has_log_number_;       // 标记是否存在log_number_
   bool has_prev_log_number_;
   bool has_next_file_number_;
   bool has_last_sequence_;
 
-  std::vector<std::pair<int, InternalKey>> compact_pointers_;
-  DeletedFileSet deleted_files_;
-  std::vector<std::pair<int, FileMetaData>> new_files_;
+  std::vector<std::pair<int, InternalKey>> compact_pointers_; //每一层文件合并的最大位置
+  DeletedFileSet deleted_files_;                          //合并废弃的文件，如level N 向 level N+1 合并压缩，level N 会废弃合并压缩的文件
+  std::vector<std::pair<int, FileMetaData>> new_files_;   //当前新增的文件，如immutable memtable转变为 sstable，导致level 0新增一个文件，int 存储着level
 };
 
 }  // namespace leveldb

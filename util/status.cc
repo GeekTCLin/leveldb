@@ -24,10 +24,14 @@ Status::Status(Code code, const Slice& msg, const Slice& msg2) {
   const uint32_t len2 = static_cast<uint32_t>(msg2.size());
   const uint32_t size = len1 + (len2 ? (2 + len2) : 0);
   char* result = new char[size + 5];
+  //先存储长度
   std::memcpy(result, &size, sizeof(size));
+  //存储code，占用1个字节
   result[4] = static_cast<char>(code);
+
   std::memcpy(result + 5, msg.data(), len1);
   if (len2) {
+	//存储分割符，这里msg 应该对应key, msg2 对应value
     result[5 + len1] = ':';
     result[6 + len1] = ' ';
     std::memcpy(result + 7 + len1, msg2.data(), len2);

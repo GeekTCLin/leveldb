@@ -85,12 +85,13 @@ class Reader {
   void ReportCorruption(uint64_t bytes, const char* reason);
   void ReportDrop(uint64_t bytes, const Status& reason);
 
-  SequentialFile* const file_;
+  SequentialFile* const file_;    // 顺序读文件操作类
   Reporter* const reporter_;
   bool const checksum_;
   char* const backing_store_;
   Slice buffer_;
-  bool eof_;  // Last Read() indicated EOF by returning < kBlockSize
+  bool eof_;  // Last Read() indicated EOF by returning < kBlockSize 
+              // 上次Read()返回长度< kBlockSize，暗示到了文件结尾EOF
 
   // Offset of the last record returned by ReadRecord.
   uint64_t last_record_offset_;

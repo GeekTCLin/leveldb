@@ -13,6 +13,9 @@
 //    len: varint32
 //    data: uint8[len]
 
+// rep_ sequence : 首个写入序列号
+
+
 #include "leveldb/write_batch.h"
 
 #include "db/dbformat.h"
@@ -20,6 +23,12 @@
 #include "db/write_batch_internal.h"
 #include "leveldb/db.h"
 #include "util/coding.h"
+
+/**
+ * WriteBatch 将操作序列存储与 rep_	即用于给memtable操作，也用于wal日志写入
+ * WriteBatchInternal 用于对外提供接口，传入 WriteBatch 对象和 memtable对象进行方法调用
+ * MemTableInserter : WriteBatch::Handler 提供对rep_迭代操作的 handler执行业务，实际向memtable插入或删除数据在这里执行
+*/
 
 namespace leveldb {
 
@@ -39,6 +48,7 @@ void WriteBatch::Clear() {
 
 size_t WriteBatch::ApproximateSize() const { return rep_.size(); }
 
+//对rep_存储的 key 和 value 进行遍历调用handler来处理
 Status WriteBatch::Iterate(Handler* handler) const {
   Slice input(rep_);
   if (input.size() < kHeader) {
@@ -95,6 +105,8 @@ void WriteBatchInternal::SetSequence(WriteBatch* b, SequenceNumber seq) {
   EncodeFixed64(&b->rep_[0], seq);
 }
 
+// 写入一个Put 记录
+// ValueType (1bytes) | key len (4bytes) key | value len (4bytes) value
 void WriteBatch::Put(const Slice& key, const Slice& value) {
   WriteBatchInternal::SetCount(this, WriteBatchInternal::Count(this) + 1);
   rep_.push_back(static_cast<char>(kTypeValue));
@@ -117,9 +129,10 @@ class MemTableInserter : public WriteBatch::Handler {
  public:
   SequenceNumber sequence_;
   MemTable* mem_;
-
+  // 实际操作memtable进行添加或删除
   void Put(const Slice& key, const Slice& value) override {
     mem_->Add(sequence_, kTypeValue, key, value);
+    // 对 sequence number 自增
     sequence_++;
   }
   void Delete(const Slice& key) override {
@@ -141,6 +154,7 @@ void WriteBatchInternal::SetContents(WriteBatch* b, const Slice& contents) {
   b->rep_.assign(contents.data(), contents.size());
 }
 
+// 合并修改头部数量，增加插入的key value 数据
 void WriteBatchInternal::Append(WriteBatch* dst, const WriteBatch* src) {
   SetCount(dst, Count(dst) + Count(src));
   assert(src->rep_.size() >= kHeader);

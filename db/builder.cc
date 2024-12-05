@@ -29,6 +29,7 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
     }
 
     TableBuilder* builder = new TableBuilder(options, file);
+	  // 记录元信息，记录内存数据库中第一个元素，提取Internal Key记录为最小值
     meta->smallest.DecodeFrom(iter->key());
     Slice key;
     for (; iter->Valid(); iter->Next()) {
@@ -36,10 +37,12 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
       builder->Add(key, iter->value());
     }
     if (!key.empty()) {
+	  // 记录Internal Key最大值
       meta->largest.DecodeFrom(key);
     }
 
     // Finish and check for builder errors
+    // Fininsh 这里已经将所有数据写入磁盘中，所以builder可以delete释放资源
     s = builder->Finish();
     if (s.ok()) {
       meta->file_size = builder->FileSize();
@@ -49,6 +52,7 @@ Status BuildTable(const std::string& dbname, Env* env, const Options& options,
 
     // Finish and check for file errors
     if (s.ok()) {
+      // fsync 保证数据缓冲区数据刷到磁盘
       s = file->Sync();
     }
     if (s.ok()) {

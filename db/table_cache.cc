@@ -23,6 +23,7 @@ static void DeleteEntry(const Slice& key, void* value) {
   delete tf;
 }
 
+// 减少cache的引用计数，迭代器析构时调用
 static void UnrefEntry(void* arg1, void* arg2) {
   Cache* cache = reinterpret_cast<Cache*>(arg1);
   Cache::Handle* h = reinterpret_cast<Cache::Handle*>(arg2);
@@ -46,6 +47,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
   Slice key(buf, sizeof(buf));
   *handle = cache_->Lookup(key);
   if (*handle == nullptr) {
+    // cache 未命中，执行io
     std::string fname = TableFileName(dbname_, file_number);
     RandomAccessFile* file = nullptr;
     Table* table = nullptr;
@@ -66,6 +68,7 @@ Status TableCache::FindTable(uint64_t file_number, uint64_t file_size,
       // We do not cache error results so that if the error is transient,
       // or somebody repairs the file, we recover automatically.
     } else {
+      // 打开文件成功，加入至cache中
       TableAndFile* tf = new TableAndFile;
       tf->file = file;
       tf->table = table;
@@ -89,6 +92,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   }
 
   Table* table = reinterpret_cast<TableAndFile*>(cache_->Value(handle))->table;
+  // 创建迭代器并绑定析构回调
   Iterator* result = table->NewIterator(options);
   result->RegisterCleanup(&UnrefEntry, cache_, handle);
   if (tableptr != nullptr) {
@@ -97,6 +101,7 @@ Iterator* TableCache::NewIterator(const ReadOptions& options,
   return result;
 }
 
+// @param k internal key
 Status TableCache::Get(const ReadOptions& options, uint64_t file_number,
                        uint64_t file_size, const Slice& k, void* arg,
                        void (*handle_result)(void*, const Slice&,

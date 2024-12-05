@@ -86,7 +86,7 @@ if (s.ok()) {
 
 The `WriteBatch` holds a sequence of edits to be made to the database, and these
 edits within the batch are applied in order. Note that we called Delete before
-Put so that if key1 is identical to key2, we do not end up erroneously dropping
+Put so that if key1 is identical(相同) to key2, we do not end up erroneously(错误地) dropping
 the value entirely.
 
 Apart from its atomicity benefits, `WriteBatch` may also be used to speed up
@@ -94,7 +94,7 @@ bulk updates by placing lots of individual mutations into the same batch.
 
 ## Synchronous Writes
 
-By default, each write to leveldb is asynchronous: it returns after pushing the
+By default, each write to leveldb is asynchronous(异步): it returns after pushing the
 write from the process into the operating system. The transfer from operating
 system memory to the underlying persistent storage happens asynchronously. The
 sync flag can be turned on for a particular write to make the write operation
@@ -104,13 +104,14 @@ persistent storage. (On Posix systems, this is implemented by calling either
 operation returns.)
 
 ```c++
+// sync = true 同步写，等到所有数据写入持久化存储器后才返回
 leveldb::WriteOptions write_options;
 write_options.sync = true;
 db->Put(write_options, ...);
 ```
 
 Asynchronous writes are often more than a thousand times as fast as synchronous
-writes. The downside of asynchronous writes is that a crash of the machine may
+writes. The downside（缺点） of asynchronous writes is that a crash of the machine may
 cause the last few updates to be lost. Note that a crash of just the writing
 process (i.e., not a reboot) will not cause any loss since even when sync is
 false, an update is pushed from the process memory into the operating system
@@ -313,7 +314,7 @@ Performance can be tuned by changing the default values of the types defined in
 
 leveldb groups adjacent keys together into the same block and such a block is
 the unit of transfer to and from persistent storage. The default block size is
-approximately 4096 uncompressed bytes.  Applications that mostly do bulk scans
+approximately 4096 uncompressed bytes.  Applications that mostly do bulk（批量） scans
 over the contents of the database may wish to increase this size. Applications
 that do a lot of point reads of small values may wish to switch to a smaller
 block size if performance measurements indicate an improvement. There isn't much

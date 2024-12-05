@@ -116,9 +116,11 @@ Status VersionEdit::DecodeFrom(const Slice& src) {
   Slice str;
   InternalKey key;
 
+  // 变长编码 读取 tag
   while (msg == nullptr && GetVarint32(&input, &tag)) {
     switch (tag) {
       case kComparator:
+        // Comparator类型 存储了比较类型名的长度 + 名
         if (GetLengthPrefixedSlice(&input, &str)) {
           comparator_ = str.ToString();
           has_comparator_ = true;

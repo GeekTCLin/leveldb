@@ -9,6 +9,9 @@
 #include "table/format.h"
 #include "table/iterator_wrapper.h"
 
+// tow_level_iterator 可以看作两个迭代器，第一层负责定位 fileMetaData，第二层则根据传入的BlockFunction 构造block操作的迭代器
+// 一级迭代器访问数据块的索引信息，二级迭代器访问数据块的具体数据。
+
 namespace leveldb {
 
 namespace {
@@ -58,7 +61,7 @@ class TwoLevelIterator : public Iterator {
   void InitDataBlock();
 
   BlockFunction block_function_;
-  void* arg_;
+  void* arg_;     // 可能为 vset_->table_cache_
   const ReadOptions options_;
   Status status_;
   IteratorWrapper index_iter_;
@@ -68,6 +71,8 @@ class TwoLevelIterator : public Iterator {
   std::string data_block_handle_;
 };
 
+// index_iter     一级迭代器
+// block_function 用于创建二级迭代器的回调
 TwoLevelIterator::TwoLevelIterator(Iterator* index_iter,
                                    BlockFunction block_function, void* arg,
                                    const ReadOptions& options)
@@ -80,6 +85,7 @@ TwoLevelIterator::TwoLevelIterator(Iterator* index_iter,
 TwoLevelIterator::~TwoLevelIterator() = default;
 
 void TwoLevelIterator::Seek(const Slice& target) {
+  // index_iter_ 迭代器先查找下标index
   index_iter_.Seek(target);
   InitDataBlock();
   if (data_iter_.iter() != nullptr) data_iter_.Seek(target);
@@ -143,16 +149,19 @@ void TwoLevelIterator::SetDataIterator(Iterator* data_iter) {
   data_iter_.Set(data_iter);
 }
 
+// 类型1 fileMetaData -> table_cache -> table -> 
 void TwoLevelIterator::InitDataBlock() {
   if (!index_iter_.Valid()) {
     SetDataIterator(nullptr);
   } else {
+    // 类型1： 以 LevelFileNumIterator 迭代器 value() 为例，hanle 包含 fileMetaData的 number 和 file_size
     Slice handle = index_iter_.value();
     if (data_iter_.iter() != nullptr &&
         handle.compare(data_block_handle_) == 0) {
       // data_iter_ is already constructed with this iterator, so
       // no need to change anything
     } else {
+      // 类型1： 以 GetFileIterator 回调为例，使用table_cache 查找 table，返回 table的迭代器
       Iterator* iter = (*block_function_)(arg_, options_, handle);
       data_block_handle_.assign(handle.data(), handle.size());
       SetDataIterator(iter);
