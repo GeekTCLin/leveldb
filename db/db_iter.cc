@@ -112,6 +112,7 @@ class DBIter : public Iterator {
   SequenceNumber const sequence_;             // 快照选择的 版本序号 或 创建时最新序号
   Status status_;
   std::string saved_key_;    // == current key when direction_==kReverse
+                             // == pre key when direction == kForward
   std::string saved_value_;  // == current raw value when direction_==kReverse
   Direction direction_;
   bool valid_;
@@ -176,6 +177,12 @@ void DBIter::Next() {
   FindNextUserEntry(true, &saved_key_);
 }
 
+/**
+ * FindNextUserEntry 提供的功能为 2个，不考虑 该userkey 对应 entry为 kTypeDeletion 版本最新的情况
+ * 第一种是 skipping 为 true，skip 为 saved_key_，跳过当前已访问的 user_key（即saved_key_)，找下一个entry
+ * 第二种是 skipping 为 false, skip 为 saved_key_，而 saved_key_ 为空字符串 或 target（seek目标） 找到的entry 为首个符合的 user_key 对应的entry
+ * 如 空字符串 对应查找 first entry， 而 seek，找到首个 与target相同userkey的entry
+ */
 void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
   // Loop until we hit an acceptable entry to yield
   assert(iter_->Valid());
@@ -237,19 +244,29 @@ void DBIter::Prev() {
   FindPrevUserEntry();
 }
 
+// 向前找 entry
+// sequence 向前是 越来越大，版本越来越新，小于 sequence_ 的版本都需要检测
 void DBIter::FindPrevUserEntry() {
   assert(direction_ == kReverse);
 
+  // value_type 初始为 kTypeDeletion
   ValueType value_type = kTypeDeletion;
   if (iter_->Valid()) {
     do {
       ParsedInternalKey ikey;
       if (ParseKey(&ikey) && ikey.sequence <= sequence_) {
+        // 这里 value_type比较的是上一个 ikey.type
         if ((value_type != kTypeDeletion) &&
             user_comparator_->Compare(ikey.user_key, saved_key_) < 0) {
+          // 找到了比 当前 saved_key_ 更小的 user_key，代表这个saved_key_ 关联的 entry已遍历完
+          // 这里 break 返回的是 save_key_，并不是 ikey.user_key
+
+          // 理论上应该还有个 ikey.user_key == saved_key_ 但 ikey.sequence > sequence_ 达成此条件应该也可以 break 返回
+          // 但这样会影响下一次FindPrevUserEntry 的调用，所以必须在本次循环过滤掉所有 save_key_ 关联的entry
           // We encountered a non-deleted value in entries for previous keys,
           break;
         }
+        // 注意 value_type 在这里才 更改为 ikey的 type
         value_type = ikey.type;
         if (value_type == kTypeDeletion) {
           saved_key_.clear();
@@ -324,3 +341,9 @@ Iterator* NewDBIterator(DBImpl* db, const Comparator* user_key_comparator,
 
 
 // https://juniorfans.gitbooks.io/blog/content/3000-leveldbjing-du-xi-5217-dbiter.html
+/**
+ * 三层迭代器 
+ * 第一层 DBIter            负责向前、向后跳到符合的entry
+ * 第二层 MergingIterator   负责有序遍历归并访问 entry
+ * 第三层 SSTable Iter + Memtable Iter + Immutable Iter 各模块单独负责顺序迭代访问
+ */
