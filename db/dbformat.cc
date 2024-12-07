@@ -51,7 +51,7 @@ const char* InternalKeyComparator::Name() const {
 // 所以该函数返回值大于0，代表 akey 字典序更小，或者是akey sequence num更小
 
 // 返回值 1 aUserkey 字典序 大于 bUserkey 或 akey sequence number 小于 bkey sequence number
-// 返回值-1 aUserkey 字典序 小于 aUserkey 或 akey sequence number 大于 akey sequence number
+// 返回值-1 aUserkey 字典序 小于 bUserkey 或 akey sequence number 大于 akey sequence number
 int InternalKeyComparator::Compare(const Slice& akey, const Slice& bkey) const {
   // Order by:
   //    increasing user key (according to user-supplied comparator)

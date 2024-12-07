@@ -1175,6 +1175,7 @@ static void CleanupIteratorState(void* arg1, void* arg2) {
 
 }  // anonymous namespace
 
+// 返回 NewMergingIterator 归并查找迭代器
 Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
                                       SequenceNumber* latest_snapshot,
                                       uint32_t* seed) {
@@ -1183,15 +1184,20 @@ Iterator* DBImpl::NewInternalIterator(const ReadOptions& options,
 
   // Collect together all needed child iterators
   std::vector<Iterator*> list;
+  // 1. 放入 memtable 迭代器
   list.push_back(mem_->NewIterator());
   mem_->Ref();
   if (imm_ != nullptr) {
+    // 2. 放入 immuntable 迭代器
     list.push_back(imm_->NewIterator());
     imm_->Ref();
   }
+  // 3. 放入 sstable 迭代器
   versions_->current()->AddIterators(options, &list);
+  // 创建 归并迭代器
   Iterator* internal_iter =
       NewMergingIterator(&internal_comparator_, &list[0], list.size());
+  // 当前版本增加引用计数
   versions_->current()->Ref();
 
   IterState* cleanup = new IterState(&mutex_, mem_, imm_, versions_->current());

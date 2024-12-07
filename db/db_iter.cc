@@ -107,9 +107,9 @@ class DBIter : public Iterator {
   }
 
   DBImpl* db_;
-  const Comparator* const user_comparator_;
-  Iterator* const iter_;
-  SequenceNumber const sequence_;
+  const Comparator* const user_comparator_;   // user key compare
+  Iterator* const iter_;                      // merge 归并迭代器
+  SequenceNumber const sequence_;             // 快照选择的 版本序号 或 创建时最新序号
   Status status_;
   std::string saved_key_;    // == current key when direction_==kReverse
   std::string saved_value_;  // == current raw value when direction_==kReverse
@@ -159,10 +159,12 @@ void DBIter::Next() {
     // saved_key_ already contains the key to skip past.
   } else {
     // Store in saved_key_ the current key so we skip it below.
+    // 从 merge iter 中 提取当前 internal key 中的 user_key
     SaveKey(ExtractUserKey(iter_->key()), &saved_key_);
 
     // iter_ is pointing to current key. We can now safely move to the next to
     // avoid checking current key.
+    // merge 迭代器预先指向下一个
     iter_->Next();
     if (!iter_->Valid()) {
       valid_ = false;
@@ -192,6 +194,8 @@ void DBIter::FindNextUserEntry(bool skipping, std::string* skip) {
           if (skipping &&
               user_comparator_->Compare(ikey.user_key, *skip) <= 0) {
             // Entry hidden
+            // 这里应该是 user_key 相同的情况， 因为 最先遇到的版本为 kTypeDeletion，后续entry则是user_key 相同，但是版本更小
+            // 需要跳过处理
           } else {
             valid_ = true;
             saved_key_.clear();
@@ -289,6 +293,7 @@ void DBIter::Seek(const Slice& target) {
   }
 }
 
+// 首次创建的 DBIter 需要先 SeekToFirst
 void DBIter::SeekToFirst() {
   direction_ = kForward;
   ClearSavedValue();
@@ -316,3 +321,6 @@ Iterator* NewDBIterator(DBImpl* db, const Comparator* user_key_comparator,
 }
 
 }  // namespace leveldb
+
+
+// https://juniorfans.gitbooks.io/blog/content/3000-leveldbjing-du-xi-5217-dbiter.html
